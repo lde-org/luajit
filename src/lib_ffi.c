@@ -52,6 +52,7 @@ static CTypeID ffi_checkctype(lua_State *L, CTState *cts, TValue *param)
     cp.srcname = strdata(s);
     cp.p = strdata(s);
     cp.param = param;
+    cp.pfx = NULL;
     cp.mode = CPARSE_MODE_ABSTRACT|CPARSE_MODE_NOIMPLICIT;
     errcode = lj_cparse(&cp);
     if (errcode) lj_err_throw(L, errcode);  /* Propagate errors. */
@@ -483,6 +484,7 @@ LJLIB_CF(ffi_cdef)
   cp.srcname = strdata(s);
   cp.p = strdata(s);
   cp.param = L->base+1;
+  cp.pfx = NULL;
   cp.mode = CPARSE_MODE_MULTI|CPARSE_MODE_DIRECT;
   errcode = lj_cparse(&cp);
   if (errcode) lj_err_throw(L, errcode);  /* Propagate errors. */
@@ -824,6 +826,113 @@ LJLIB_PUSH(top-2) LJLIB_SET(arch)
 
 #include "lj_libdef.h"
 
+/* -- FFI context (namespaced FFI) ---------------------------------------- */
+
+/* Context userdata: holds prefix string (NULL if no prefix). */
+typedef struct FFICtx { GCstr *pfx; } FFICtx;
+
+/* Get prefix from a context userdata at stack index idx. */
+static LJ_AINLINE GCstr *ffi_ctx_getpfx(lua_State *L, int idx)
+{
+  return ((FFICtx *)uddata(udataV(L->base + idx - 1)))->pfx;
+}
+
+/* Remove self (arg 1) from the stack by shifting remaining args down. */
+static void ffi_ctx_shift(lua_State *L)
+{
+  ptrdiff_t n = L->top - L->base - 1;
+  if (n > 0) memmove(L->base, L->base + 1, (size_t)n * sizeof(TValue));
+  L->top--;
+}
+
+/* If arg 1 is a type string, resolve it to a ctype cdata.
+** Sets cp.pfx so that cp_ident looks up prefixed identifiers. */
+static void ffi_ctx_presolve(lua_State *L, GCstr *pfx)
+{
+  if (pfx && L->base < L->top && tvisstr(L->base)) {
+    CTState *cts = ctype_cts(L);
+    GCstr *s = strV(L->base);
+    CPState cp;
+    int errcode;
+    GCcdata *cd;
+    cp.L = L; cp.cts = cts;
+    cp.srcname = strdata(s); cp.p = strdata(s);
+    cp.param = NULL; cp.pfx = pfx;
+    cp.mode = CPARSE_MODE_ABSTRACT|CPARSE_MODE_NOIMPLICIT;
+    errcode = lj_cparse(&cp);
+    if (errcode) lj_err_throw(L, errcode);
+    cd = lj_cdata_new(cts, CTID_CTYPEID, 4);
+    *(CTypeID *)cdataptr(cd) = cp.val.id;
+    setcdataV(L, L->base, cd);
+    lj_gc_check(L);
+  }
+}
+
+/* ctx:cdef(code [, $params...]) */
+static int ffi_ctx_cdef(lua_State *L)
+{
+  GCstr *pfx = ffi_ctx_getpfx(L, 1);
+  GCstr *s = lj_lib_checkstr(L, 2);
+  CPState cp;
+  int errcode;
+  cp.L = L; cp.cts = ctype_cts(L);
+  cp.srcname = strdata(s); cp.p = strdata(s);
+  cp.param = L->base + 2; cp.pfx = pfx;
+  cp.mode = CPARSE_MODE_MULTI|CPARSE_MODE_DIRECT;
+  errcode = lj_cparse(&cp);
+  if (errcode) lj_err_throw(L, errcode);
+  lj_gc_check(L);
+  return 0;
+}
+
+/* ctx:new/cast/typeof/sizeof/alignof/offsetof/metatype/istype --
+** Resolve the type arg with prefix, then delegate to the base ffi function. */
+#define DEFCTXFN(name) \
+  static int ffi_ctx_##name(lua_State *L) { \
+    GCstr *pfx = ffi_ctx_getpfx(L, 1); ffi_ctx_shift(L); \
+    ffi_ctx_presolve(L, pfx); return lj_cf_ffi_##name(L); \
+  }
+DEFCTXFN(new)
+DEFCTXFN(cast)
+DEFCTXFN(typeof)
+DEFCTXFN(sizeof)
+DEFCTXFN(alignof)
+DEFCTXFN(offsetof)
+DEFCTXFN(metatype)
+DEFCTXFN(istype)
+#undef DEFCTXFN
+
+/* ctx:load(libname [, global]) -- delegates to ffi.load. */
+static int ffi_ctx_load(lua_State *L)
+{
+  cTValue *tv;
+  GCstr *name;
+  int global;
+  GCtab *clib_mt;
+  ffi_ctx_shift(L);
+  name = lj_lib_checkstr(L, 1);
+  global = (L->base + 1 < L->top && tvistruecond(L->base + 1));
+  tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, "_LOADED"));
+  tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, LUA_FFILIBNAME)) : NULL;
+  tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, "C")) : NULL;
+  if (!tv || !tvisudata(tv)) lj_err_caller(L, LJ_ERR_FFI_INVTYPE);
+  clib_mt = gco2tab(gcref(udataV(tv)->metatable));
+  lj_clib_load(L, clib_mt, name, global);
+  return 1;
+}
+
+/* ffi.context([prefix]) -- Create a namespaced FFI context.
+** Returns a userdata with a shared metatable (__index -> shared methods). */
+static int lj_cf_ffi_context(lua_State *L)
+{
+  GCstr *pfx = lj_lib_optstr(L, 1);
+  FFICtx *ctx = (FFICtx *)lua_newuserdata(L, sizeof(FFICtx));
+  ctx->pfx = pfx;
+  lua_pushvalue(L, lua_upvalueindex(1));  /* Shared metatable. */
+  lua_setmetatable(L, -2);
+  return 1;
+}
+
 /* ------------------------------------------------------------------------ */
 
 /* Register FFI module as loaded. */
@@ -853,6 +962,28 @@ LUALIB_API int luaopen_ffi(lua_State *L)
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
   LJ_LIB_REG(L, NULL, ffi);  /* Note: no global "ffi" created! */
+  /* Build shared metatable for ffi.context. */
+  {
+    int ffi_idx = lua_gettop(L), mt_idx;
+    lua_createtable(L, 0, 10);
+    mt_idx = lua_gettop(L);
+    lua_pushcfunction(L, ffi_ctx_cdef); lua_setfield(L, mt_idx, "cdef");
+    lua_pushcfunction(L, ffi_ctx_new); lua_setfield(L, mt_idx, "new");
+    lua_pushcfunction(L, ffi_ctx_cast); lua_setfield(L, mt_idx, "cast");
+    lua_pushcfunction(L, ffi_ctx_typeof); lua_setfield(L, mt_idx, "typeof");
+    lua_pushcfunction(L, ffi_ctx_sizeof); lua_setfield(L, mt_idx, "sizeof");
+    lua_pushcfunction(L, ffi_ctx_alignof); lua_setfield(L, mt_idx, "alignof");
+    lua_pushcfunction(L, ffi_ctx_offsetof); lua_setfield(L, mt_idx, "offsetof");
+    lua_pushcfunction(L, ffi_ctx_metatype); lua_setfield(L, mt_idx, "metatype");
+    lua_pushcfunction(L, ffi_ctx_istype); lua_setfield(L, mt_idx, "istype");
+    lua_pushcfunction(L, ffi_ctx_load); lua_setfield(L, mt_idx, "load");
+    /* __index -> self. */
+    lua_pushvalue(L, mt_idx);
+    lua_setfield(L, mt_idx, "__index");
+    lua_pushcclosure(L, lj_cf_ffi_context, 1);
+    lua_setfield(L, ffi_idx, "context");
+    lua_settop(L, ffi_idx);
+  }
   ffi_register_module(L);
   return 1;
 }

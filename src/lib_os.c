@@ -74,6 +74,13 @@ LJLIB_CF(os_rename)
   return luaL_fileresult(L, rename(fromname, toname) == 0, fromname);
 }
 
+/* Resolve temporary directory (POSIX TMPDIR or /tmp fallback). */
+static const char *os_tmpdir(void)
+{
+  const char *dir = getenv("TMPDIR");
+  return dir ? dir : "/tmp";
+}
+
 LJLIB_CF(os_tmpname)
 {
 #if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX
@@ -81,21 +88,29 @@ LJLIB_CF(os_tmpname)
   return 0;
 #else
 #if LJ_TARGET_POSIX
-  char buf[15+1];
+  const char *tmpdir = os_tmpdir();
+  size_t dirlen = strlen(tmpdir);
+  /* dirlen + "/lua_XXXXXX" + NUL */
+  char *buf = lj_buf_need(&G(L)->tmpbuf, dirlen + 12);
   int fp;
-  strcpy(buf, "/tmp/lua_XXXXXX");
+  memcpy(buf, tmpdir, dirlen);
+  buf[dirlen] = '/';
+  memcpy(buf + dirlen + 1, "lua_XXXXXX", 11);
   fp = mkstemp(buf);
   if (fp != -1)
     close(fp);
   else
     lj_err_caller(L, LJ_ERR_OSUNIQF);
+  setsbufL(&G(L)->tmpbuf, L);
+  lua_pushlstring(L, buf, dirlen + 11);
+  return 1;
 #else
   char buf[L_tmpnam];
   if (tmpnam(buf) == NULL)
     lj_err_caller(L, LJ_ERR_OSUNIQF);
-#endif
   lua_pushstring(L, buf);
   return 1;
+#endif
 #endif
 }
 

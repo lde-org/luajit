@@ -1884,7 +1884,8 @@ static void cp_decl_multi(CPState *cp)
       ctypeid = cp_decl_intern(cp, &decl);
       if (decl.name && decl.nameid && cp->pfx) {  /* Avoid global collision. */
 	GCstr *pfxname = cp_prefixname(cp, decl.name);
-	if (!lj_ctype_getname(cp->cts, NULL, pfxname, CPNS_DEFAULT))
+	CType *dct;
+	if (!lj_ctype_getname(cp->cts, &dct, pfxname, CPNS_DEFAULT))
 	  decl.nameid = 0;
       }
       if (decl.name && !decl.nameid) {  /* NYI: redeclarations are ignored. */

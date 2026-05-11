@@ -828,11 +828,13 @@ LJLIB_PUSH(top-2) LJLIB_SET(arch)
 
 /* -- FFI context (namespaced FFI) ---------------------------------------- */
 
-/* Get prefix from upvalue 1 (NULL if nil). */
-static LJ_AINLINE GCstr *ffi_ctx_upv_pfx(lua_State *L)
+/* Context userdata: holds prefix string (NULL if no prefix). */
+typedef struct FFICtx { GCstr *pfx; } FFICtx;
+
+/* Get prefix from a context userdata at stack index idx. */
+static LJ_AINLINE GCstr *ffi_ctx_getpfx(lua_State *L, int idx)
 {
-  TValue *tv = lj_lib_upvalue(L, 1);
-  return tvisstr(tv) ? strV(tv) : NULL;
+  return ((FFICtx *)uddata(udataV(L->base + idx - 1)))->pfx;
 }
 
 /* Remove self (arg 1) from the stack by shifting remaining args down. */
@@ -866,15 +868,16 @@ static void ffi_ctx_presolve(lua_State *L, GCstr *pfx)
   }
 }
 
-/* ctx:cdef(code [, $params...]) -- Upvalue 1 = prefix. */
-static int lj_cf_ffi_ctx_cdef(lua_State *L)
+/* ctx:cdef(code [, $params...]) */
+static int ffi_ctx_cdef(lua_State *L)
 {
+  GCstr *pfx = ffi_ctx_getpfx(L, 1);
   GCstr *s = lj_lib_checkstr(L, 2);
   CPState cp;
   int errcode;
   cp.L = L; cp.cts = ctype_cts(L);
   cp.srcname = strdata(s); cp.p = strdata(s);
-  cp.param = L->base + 2; cp.pfx = ffi_ctx_upv_pfx(L);
+  cp.param = L->base + 2; cp.pfx = pfx;
   cp.mode = CPARSE_MODE_MULTI|CPARSE_MODE_DIRECT;
   errcode = lj_cparse(&cp);
   if (errcode) lj_err_throw(L, errcode);
@@ -885,8 +888,8 @@ static int lj_cf_ffi_ctx_cdef(lua_State *L)
 /* ctx:new/cast/typeof/sizeof/alignof/offsetof/metatype/istype --
 ** Resolve the type arg with prefix, then delegate to the base ffi function. */
 #define DEFCTXFN(name) \
-  static int lj_cf_ffi_ctx_##name(lua_State *L) { \
-    GCstr *pfx = ffi_ctx_upv_pfx(L); ffi_ctx_shift(L); \
+  static int ffi_ctx_##name(lua_State *L) { \
+    GCstr *pfx = ffi_ctx_getpfx(L, 1); ffi_ctx_shift(L); \
     ffi_ctx_presolve(L, pfx); return lj_cf_ffi_##name(L); \
   }
 DEFCTXFN(new)
@@ -900,44 +903,31 @@ DEFCTXFN(istype)
 #undef DEFCTXFN
 
 /* ctx:load(libname [, global]) -- delegates to ffi.load. */
-static int lj_cf_ffi_ctx_load(lua_State *L)
+static int ffi_ctx_load(lua_State *L)
 {
   GCstr *name = lj_lib_checkstr(L, 2);
   int global = (L->base + 2 < L->top && tvistruecond(L->base + 2));
-  GCtab *clib_mt;
   cTValue *tv;
+  GCtab *clib_mt;
   ffi_ctx_shift(L);
-  tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, LUA_FFILIBNAME));
-  if (!tv || !tvistab(tv)) lj_err_caller(L, LJ_ERR_FFI_INVTYPE);
-  clib_mt = tabV(lj_tab_getstr(tabV(tv), lj_str_newlit(L, "CLIB")));
+  tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, "_LOADED"));
+  tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, LUA_FFILIBNAME)) : NULL;
+  tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, "C")) : NULL;
+  if (!tv || !tvisudata(tv)) lj_err_caller(L, LJ_ERR_FFI_INVTYPE);
+  clib_mt = gco2tab(gcref(udataV(tv)->metatable));
   lj_clib_load(L, clib_mt, name, global);
   return 1;
 }
 
-/* ffi.context([prefix]) -- Create a namespaced FFI context. */
+/* ffi.context([prefix]) -- Create a namespaced FFI context.
+** Returns a userdata with a shared metatable (__index -> shared methods). */
 static int lj_cf_ffi_context(lua_State *L)
 {
   GCstr *pfx = lj_lib_optstr(L, 1);
-  int i;
-  static const struct { const char *name; lua_CFunction fn; } methods[] = {
-    {"cdef",     lj_cf_ffi_ctx_cdef},
-    {"new",      lj_cf_ffi_ctx_new},
-    {"cast",     lj_cf_ffi_ctx_cast},
-    {"typeof",   lj_cf_ffi_ctx_typeof},
-    {"sizeof",   lj_cf_ffi_ctx_sizeof},
-    {"alignof",  lj_cf_ffi_ctx_alignof},
-    {"offsetof", lj_cf_ffi_ctx_offsetof},
-    {"metatype", lj_cf_ffi_ctx_metatype},
-    {"istype",   lj_cf_ffi_ctx_istype},
-    {"load",     lj_cf_ffi_ctx_load},
-    {NULL, NULL}
-  };
-  lua_createtable(L, 0, 10);
-  for (i = 0; methods[i].name; i++) {
-    if (pfx) setstrV(L, L->top++, pfx); else setnilV(L->top++);
-    lua_pushcclosure(L, methods[i].fn, 1);
-    lua_setfield(L, -2, methods[i].name);
-  }
+  FFICtx *ctx = (FFICtx *)lua_newuserdata(L, sizeof(FFICtx));
+  ctx->pfx = pfx;
+  lua_pushvalue(L, lua_upvalueindex(1));  /* Shared metatable. */
+  lua_setmetatable(L, -2);
   return 1;
 }
 
@@ -970,8 +960,31 @@ LUALIB_API int luaopen_ffi(lua_State *L)
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
   LJ_LIB_REG(L, NULL, ffi);  /* Note: no global "ffi" created! */
-  lua_pushcfunction(L, lj_cf_ffi_context);
-  lua_setfield(L, -2, "context");
+  /* Build shared methods table and metatable for ffi.context. */
+  {
+    int ffi_idx = lua_gettop(L);  /* ffi module table. */
+    int methods_idx;
+    lua_createtable(L, 0, 10);  /* Shared methods table. */
+    methods_idx = lua_gettop(L);
+    lua_pushcfunction(L, ffi_ctx_cdef); lua_setfield(L, methods_idx, "cdef");
+    lua_pushcfunction(L, ffi_ctx_new); lua_setfield(L, methods_idx, "new");
+    lua_pushcfunction(L, ffi_ctx_cast); lua_setfield(L, methods_idx, "cast");
+    lua_pushcfunction(L, ffi_ctx_typeof); lua_setfield(L, methods_idx, "typeof");
+    lua_pushcfunction(L, ffi_ctx_sizeof); lua_setfield(L, methods_idx, "sizeof");
+    lua_pushcfunction(L, ffi_ctx_alignof); lua_setfield(L, methods_idx, "alignof");
+    lua_pushcfunction(L, ffi_ctx_offsetof); lua_setfield(L, methods_idx, "offsetof");
+    lua_pushcfunction(L, ffi_ctx_metatype); lua_setfield(L, methods_idx, "metatype");
+    lua_pushcfunction(L, ffi_ctx_istype); lua_setfield(L, methods_idx, "istype");
+    lua_pushcfunction(L, ffi_ctx_load); lua_setfield(L, methods_idx, "load");
+    /* Shared metatable: __index -> methods table. */
+    lua_createtable(L, 0, 1);
+    lua_pushvalue(L, methods_idx);
+    lua_setfield(L, -2, "__index");
+    /* ffi.context with shared metatable as upvalue. */
+    lua_pushcclosure(L, lj_cf_ffi_context, 1);
+    lua_setfield(L, ffi_idx, "context");  /* Set on ffi module table. */
+    lua_settop(L, ffi_idx);  /* Drop methods+metatable, keep ffi module. */
+  }
   ffi_register_module(L);
   return 1;
 }

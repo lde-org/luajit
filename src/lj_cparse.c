@@ -185,14 +185,13 @@ static CPToken cp_number(CPState *cp)
   return CTOK_INTEGER;
 }
 
-/* Return name prefixed with cp->pfx + "_", or name unchanged if no prefix. */
+/* Return name prefixed with cp->pfx, or name unchanged if no prefix. */
 static GCstr *cp_prefixname(CPState *cp, GCstr *name)
 {
   SBuf *sb;
   if (!cp->pfx) return name;
   sb = lj_buf_tmp_(cp->L);
   lj_buf_putmem(sb, strdata(cp->pfx), cp->pfx->len);
-  lj_buf_putchar(sb, '_');
   lj_buf_putmem(sb, strdata(name), name->len);
   return lj_buf_str(cp->L, sb);
 }

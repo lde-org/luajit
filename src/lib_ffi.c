@@ -962,30 +962,27 @@ LUALIB_API int luaopen_ffi(lua_State *L)
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
   LJ_LIB_REG(L, NULL, ffi);  /* Note: no global "ffi" created! */
-  /* Build shared methods table and metatable for ffi.context. */
+  /* Build shared metatable for ffi.context. */
   {
-    int ffi_idx = lua_gettop(L);  /* ffi module table. */
-    int methods_idx;
-    lua_createtable(L, 0, 10);  /* Shared methods table. */
-    methods_idx = lua_gettop(L);
-    lua_pushcfunction(L, ffi_ctx_cdef); lua_setfield(L, methods_idx, "cdef");
-    lua_pushcfunction(L, ffi_ctx_new); lua_setfield(L, methods_idx, "new");
-    lua_pushcfunction(L, ffi_ctx_cast); lua_setfield(L, methods_idx, "cast");
-    lua_pushcfunction(L, ffi_ctx_typeof); lua_setfield(L, methods_idx, "typeof");
-    lua_pushcfunction(L, ffi_ctx_sizeof); lua_setfield(L, methods_idx, "sizeof");
-    lua_pushcfunction(L, ffi_ctx_alignof); lua_setfield(L, methods_idx, "alignof");
-    lua_pushcfunction(L, ffi_ctx_offsetof); lua_setfield(L, methods_idx, "offsetof");
-    lua_pushcfunction(L, ffi_ctx_metatype); lua_setfield(L, methods_idx, "metatype");
-    lua_pushcfunction(L, ffi_ctx_istype); lua_setfield(L, methods_idx, "istype");
-    lua_pushcfunction(L, ffi_ctx_load); lua_setfield(L, methods_idx, "load");
-    /* Shared metatable: __index -> methods table. */
-    lua_createtable(L, 0, 1);
-    lua_pushvalue(L, methods_idx);
-    lua_setfield(L, -2, "__index");
-    /* ffi.context with shared metatable as upvalue. */
+    int ffi_idx = lua_gettop(L), mt_idx;
+    lua_createtable(L, 0, 10);
+    mt_idx = lua_gettop(L);
+    lua_pushcfunction(L, ffi_ctx_cdef); lua_setfield(L, mt_idx, "cdef");
+    lua_pushcfunction(L, ffi_ctx_new); lua_setfield(L, mt_idx, "new");
+    lua_pushcfunction(L, ffi_ctx_cast); lua_setfield(L, mt_idx, "cast");
+    lua_pushcfunction(L, ffi_ctx_typeof); lua_setfield(L, mt_idx, "typeof");
+    lua_pushcfunction(L, ffi_ctx_sizeof); lua_setfield(L, mt_idx, "sizeof");
+    lua_pushcfunction(L, ffi_ctx_alignof); lua_setfield(L, mt_idx, "alignof");
+    lua_pushcfunction(L, ffi_ctx_offsetof); lua_setfield(L, mt_idx, "offsetof");
+    lua_pushcfunction(L, ffi_ctx_metatype); lua_setfield(L, mt_idx, "metatype");
+    lua_pushcfunction(L, ffi_ctx_istype); lua_setfield(L, mt_idx, "istype");
+    lua_pushcfunction(L, ffi_ctx_load); lua_setfield(L, mt_idx, "load");
+    /* __index -> self. */
+    lua_pushvalue(L, mt_idx);
+    lua_setfield(L, mt_idx, "__index");
     lua_pushcclosure(L, lj_cf_ffi_context, 1);
-    lua_setfield(L, ffi_idx, "context");  /* Set on ffi module table. */
-    lua_settop(L, ffi_idx);  /* Drop methods+metatable, keep ffi module. */
+    lua_setfield(L, ffi_idx, "context");
+    lua_settop(L, ffi_idx);
   }
   ffi_register_module(L);
   return 1;

@@ -13,6 +13,7 @@ Here's a table of supported platforms and download links to the `luajit` binary.
 | **Linux**   | x86-64                  | glibc (2.35+) | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-linux-x86-64-gnu.tar.gz)    |
 | **Linux**   | aarch64 (ARM64)         | glibc (2.35+) | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-linux-aarch64-gnu.tar.gz)   |
 | **Linux**   | aarch64 (ARM64)         | musl          | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-linux-aarch64-musl.tar.gz)  |
+| **Linux**   | aarch64 (ARM64)         | android       | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-linux-aarch64-android.tar.gz) |
 | **Windows** | x86-64                  | -             | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-windows-x86-64-gnu.tar.gz)  |
 | **Windows** | aarch64 (ARM64)         | -             | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-windows-aarch64-gnu.tar.gz) |
 | **macOS**   | x86-64 (Intel)          | -             | [✅ Download](https://github.com/lde-org/luajit/releases/download/latest/luajit-macos-x86-64.tar.gz)        |

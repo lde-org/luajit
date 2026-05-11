@@ -24,6 +24,7 @@
 #define CPARSE_MODE_FIELD	8	/* Accept field width in bits, too. */
 #define CPARSE_MODE_NOIMPLICIT	16	/* Reject implicit declarations. */
 #define CPARSE_MODE_SKIP	32	/* Skip definitions, ignore errors. */
+#define CPARSE_MODE_PFX	64	/* Identifier matched via prefix lookup. */
 
 typedef int CPChar;	/* C parser character. Unsigned ext. from char. */
 typedef int CPToken;	/* C parser token. */
@@ -56,6 +57,7 @@ typedef struct CPState {
   uint32_t mode;	/* C parser mode. */
   uint8_t packstack[CPARSE_MAX_PACKSTACK];  /* Stack for pack pragmas. */
   uint8_t curpack;	/* Current position in pack pragma stack. */
+  GCstr *pfx;		/* Name prefix for declarations (NULL = no prefix). */
 } CPState;
 
 LJ_FUNC int lj_cparse(CPState *cp);

@@ -1,16 +1,51 @@
-README for LuaJIT 2.1
----------------------
+# luajit
 
-LuaJIT is a Just-In-Time (JIT) compiler for the Lua programming language.
+This is `lde`'s fork of LuaJIT.
 
-Project Homepage: https://luajit.org/
+It contains features for the sake of improved cross platform capabilities, and those that would benefit the lde runtime.
 
-LuaJIT is Copyright (C) 2005-2026 Mike Pall.
-LuaJIT is free software, released under the MIT license.
-See full Copyright Notice in the COPYRIGHT file or in luajit.h.
+## Extensions
 
-Documentation for LuaJIT is available in HTML format.
-Please point your favorite browser to:
+### `ffi.context([prefix])`
 
- doc/luajit.html
+Creates a namespaced FFI context that isolates C type declarations under an optional
+prefix, preventing collisions with the global type namespace.
 
+**Methods** (same API as the `ffi` module, operating on the context's namespace):
+- `ctx:cdef(code)` — declare types, adding `prefix` to each top-level name
+- `ctx:new(ctype, ...)` — allocate a cdata object
+- `ctx:cast(ctype, init)` — cast to a C type
+- `ctx:typeof(ctype)` — get the ctype of a type name
+- `ctx:sizeof(ctype)` — get the size of a type
+- `ctx:alignof(ctype)` — get the alignment of a type
+- `ctx:offsetof(ctype, field)` — get the offset of a struct field
+- `ctx:metatype(ctype, mt)` — set a metatype for a type
+- `ctx:istype(val, ctype)` — check if a value is a given type
+- `ctx:load(libname [, global])` — load a shared library
+
+**Example**:
+```lua
+local ffi = require("ffi")
+
+-- Create a context with prefix "foo", all types get "foo" prepended
+local ctx = ffi.context("foo")
+ctx:cdef([[ typedef int num; typedef struct { double v; } inner; ]])
+
+-- Types are named "foonum", "fooinner" — no collisions with globals
+local a = ctx:new("num")      -- cdata<int>
+local b = ffi.new("foonum")   -- equivalent
+
+-- Multiple contexts with different prefixes can use the same names
+local a_ctx = ffi.context("a")
+local b_ctx = ffi.context("b")
+a_ctx:cdef("typedef int num;")   -- creates "anum" (int)
+b_ctx:cdef("typedef double num;") -- creates "bnum" (double)
+
+-- No-prefix context still useful for scoped cdef
+local scoped = ffi.context()
+scoped:cdef("typedef int foo;")
+```
+
+Types declared inside a context are stored in the global type namespace with the
+prefix applied, so they are accessible globally (e.g., via `ffi.C` or `ffi.new`).
+The prefix simply ensures each context gets unique names.

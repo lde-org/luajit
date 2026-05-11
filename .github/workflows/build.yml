@@ -20,7 +20,7 @@ jobs:
             platform: linux
             arch: aarch64
             libc: gnu
-          - os: ubuntu-22.04
+          - os: ubuntu-22.04-arm
             platform: linux
             arch: aarch64
             libc: musl
@@ -58,16 +58,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      # --- Linux ARM64 musl (Docker) ---
-      - name: Set up QEMU for ARM64
+      # --- Linux ARM64 musl (native) ---
+      - name: Install musl toolchain
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Pull Alpine ARM64 image
-        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        run: docker pull --platform linux/arm64 alpine:3.23
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       # --- Linux ARM64 Android ---
       - name: Set up Android NDK
@@ -97,9 +91,7 @@ jobs:
 
       - name: Build (Linux ARM64 musl)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        run: |
-          docker run --rm --platform linux/arm64 -v $PWD:/work -w /work alpine:3.23 \
-            sh -c 'apk add --no-cache make gcc musl-dev && make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"'
+        run: make -C src STATIC_CC="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 Android)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'

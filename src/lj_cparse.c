@@ -197,20 +197,15 @@ static GCstr *cp_prefixname(CPState *cp, GCstr *name)
   return lj_buf_str(cp->L, sb);
 }
 
-/* If cp->pfx is set and cp->val.id refers to an unprefixed (global) name
-** rather than a prefixed one, clear cp->val.id so that callers treat this
-** as a new definition instead of a reference to an existing type.
-** 64 (set by cp_ident) means the match is already
-** from the prefixed path, so we skip the override.
-*/
+/* Clear cp->val.id for global names without a prefixed equivalent. */
 static LJ_AINLINE void cp_check_pfxref(CPState *cp)
 {
-  if (cp->pfx && cp->val.id && !(cp->mode & 64)) {
+  if (cp->pfx && cp->val.id && !(cp->mode & CPARSE_MODE_PFX)) {
     GCstr *pfxname = cp_prefixname(cp, cp->str);
     if (!lj_ctype_getname(cp->cts, &cp->ct, pfxname, cp->tmask))
       cp->val.id = 0;
   }
-  cp->mode &= ~64;
+  cp->mode &= ~CPARSE_MODE_PFX;
 }
 
 /* Parse identifier or keyword. */
@@ -223,7 +218,7 @@ static CPToken cp_ident(CPState *cp)
     cp->val.id = lj_ctype_getname(cp->cts, &cp->ct, pfxname, cp->tmask);
     if (cp->val.id) {
       cp->str = pfxname;
-      cp->mode |= 64;  /* 64. */
+      cp->mode |= CPARSE_MODE_PFX;
       if (ctype_type(cp->ct->info) == CT_KW)
 	return ctype_cid(cp->ct->info);
       return CTOK_IDENT;

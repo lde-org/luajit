@@ -905,11 +905,13 @@ DEFCTXFN(istype)
 /* ctx:load(libname [, global]) -- delegates to ffi.load. */
 static int ffi_ctx_load(lua_State *L)
 {
-  GCstr *name = lj_lib_checkstr(L, 2);
-  int global = (L->base + 2 < L->top && tvistruecond(L->base + 2));
   cTValue *tv;
+  GCstr *name;
+  int global;
   GCtab *clib_mt;
   ffi_ctx_shift(L);
+  name = lj_lib_checkstr(L, 1);
+  global = (L->base + 1 < L->top && tvistruecond(L->base + 1));
   tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, "_LOADED"));
   tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, LUA_FFILIBNAME)) : NULL;
   tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, "C")) : NULL;

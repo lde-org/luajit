@@ -845,8 +845,8 @@ static void ffi_ctx_shift(lua_State *L)
   L->top--;
 }
 
-/* If arg 1 is a type string, parse it with prefix and replace with ctype cdata.
-** cp_ident in the parser will resolve prefixed names via its fallback. */
+/* If arg 1 is a type string, resolve it to a ctype cdata.
+** Sets cp.pfx so that cp_ident looks up prefixed identifiers. */
 static void ffi_ctx_presolve(lua_State *L, GCstr *pfx)
 {
   if (pfx && L->base < L->top && tvisstr(L->base)) {

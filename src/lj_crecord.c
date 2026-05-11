@@ -84,6 +84,7 @@ static CTypeID argv2ctype(jit_State *J, TRef tr, cTValue *o)
     cp.srcname = strdata(s);
     cp.p = strdata(s);
     cp.param = NULL;
+    cp.pfx = NULL;
     cp.mode = CPARSE_MODE_ABSTRACT|CPARSE_MODE_NOIMPLICIT;
     if (lj_cparse(&cp) || cp.cts->top > oldtop)  /* Avoid new struct defs. */
       lj_trace_err(J, LJ_TRERR_BADTYPE);

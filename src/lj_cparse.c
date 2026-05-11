@@ -185,11 +185,46 @@ static CPToken cp_number(CPState *cp)
   return CTOK_INTEGER;
 }
 
+/* Return name prefixed with cp->pfx + "_", or name unchanged if no prefix. */
+static GCstr *cp_prefixname(CPState *cp, GCstr *name)
+{
+  SBuf *sb;
+  if (!cp->pfx) return name;
+  sb = lj_buf_tmp_(cp->L);
+  lj_buf_putmem(sb, strdata(cp->pfx), cp->pfx->len);
+  lj_buf_putchar(sb, '_');
+  lj_buf_putmem(sb, strdata(name), name->len);
+  return lj_buf_str(cp->L, sb);
+}
+
+/* If cp->pfx is set and cp->val.id refers to an unprefixed (global) name
+** rather than a prefixed one, clear cp->val.id so that callers treat this
+** as a new definition instead of a reference to an existing type.
+*/
+static LJ_AINLINE void cp_check_pfxref(CPState *cp)
+{
+  if (cp->pfx && cp->val.id) {
+    GCstr *pfxname = cp_prefixname(cp, cp->str);
+    if (!lj_ctype_getname(cp->cts, &cp->ct, pfxname, cp->tmask))
+      cp->val.id = 0;
+  }
+}
+
 /* Parse identifier or keyword. */
 static CPToken cp_ident(CPState *cp)
 {
   do { cp_save(cp, cp->c); } while (lj_char_isident(cp_get(cp)));
   cp->str = lj_buf_str(cp->L, &cp->sb);
+  if (cp->pfx) {  /* Try prefixed name first. */
+    GCstr *pfxname = cp_prefixname(cp, cp->str);
+    cp->val.id = lj_ctype_getname(cp->cts, &cp->ct, pfxname, cp->tmask);
+    if (cp->val.id) {
+      cp->str = pfxname;
+      if (ctype_type(cp->ct->info) == CT_KW)
+	return ctype_cid(cp->ct->info);
+      return CTOK_IDENT;
+    }
+  }
   cp->val.id = lj_ctype_getname(cp->cts, &cp->ct, cp->str, cp->tmask);
   if (ctype_type(cp->ct->info) == CT_KW)
     return ctype_cid(cp->ct->info);
@@ -1227,6 +1262,7 @@ static CTypeID cp_struct_name(CPState *cp, CPDecl *sdecl, CTInfo info)
   cp->tmask = CPNS_DEFAULT;
   if (cp->tok != '{') {
     if (cp->tok != CTOK_IDENT) cp_err_token(cp, CTOK_IDENT);
+    cp_check_pfxref(cp);  /* Avoid global collision in prefixed context. */
     if (cp->val.id) {  /* Name of existing struct/union/enum. */
       sid = cp->val.id;
       ct = cp->ct;
@@ -1238,7 +1274,7 @@ static CTypeID cp_struct_name(CPState *cp, CPDecl *sdecl, CTInfo info)
       sid = lj_ctype_new(cp->cts, &ct);
       ct->info = info;
       ct->size = CTSIZE_INVALID;
-      ctype_setname(ct, cp->str);
+      ctype_setname(ct, cp_prefixname(cp, cp->str));
       lj_ctype_addname(cp->cts, ct, sid);
     }
     cp_next(cp);
@@ -1452,6 +1488,7 @@ static CTypeID cp_decl_enum(CPState *cp, CPDecl *sdecl)
     do {
       GCstr *name = cp->str;
       if (cp->tok != CTOK_IDENT) cp_err_token(cp, CTOK_IDENT);
+      cp_check_pfxref(cp);  /* Avoid global collision in prefixed context. */
       if (cp->val.id) cp_errmsg(cp, 0, LJ_ERR_FFI_REDEF, strdata(name));
       cp_next(cp);
       if (cp_opt(cp, '=')) {
@@ -1477,7 +1514,7 @@ static CTypeID cp_decl_enum(CPState *cp, CPDecl *sdecl)
 	CTypeID constid = lj_ctype_new(cp->cts, &ct);
 	ctype_get(cp->cts, lastid)->sib = constid;
 	lastid = constid;
-	ctype_setname(ct, name);
+	ctype_setname(ct, cp_prefixname(cp, name));
 	ct->info = CTINFO(CT_CONSTVAL, CTF_CONST|k.id);
 	ct->size = k.u32++;
 	if (k.u32 == 0x80000000u) k.id = CTID_UINT32;
@@ -1845,6 +1882,11 @@ static void cp_decl_multi(CPState *cp)
       CTypeID ctypeid;
       cp_declarator(cp, &decl);
       ctypeid = cp_decl_intern(cp, &decl);
+      if (decl.name && decl.nameid && cp->pfx) {  /* Avoid global collision. */
+	GCstr *pfxname = cp_prefixname(cp, decl.name);
+	if (!lj_ctype_getname(cp->cts, NULL, pfxname, CPNS_DEFAULT))
+	  decl.nameid = 0;
+      }
       if (decl.name && !decl.nameid) {  /* NYI: redeclarations are ignored. */
 	CType *ct;
 	CTypeID id;
@@ -1875,7 +1917,7 @@ static void cp_decl_multi(CPState *cp)
 	  ctype_setname(cta, decl.redir);
 	}
       noredir:
-	ctype_setname(ct, decl.name);
+	ctype_setname(ct, cp_prefixname(cp, decl.name));
 	lj_ctype_addname(cp->cts, ct, id);
       }
       if (!cp_opt(cp, ',')) break;

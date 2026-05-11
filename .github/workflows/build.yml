@@ -1,0 +1,170 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x86-64
+            libc: gnu
+          - os: ubuntu-22.04
+            platform: linux
+            arch: aarch64
+            libc: gnu
+          - os: ubuntu-22.04
+            platform: linux
+            arch: aarch64
+            libc: musl
+          - os: ubuntu-22.04
+            platform: linux
+            arch: aarch64
+            libc: android
+          # Windows builds (cross-compiled from Linux)
+          - os: ubuntu-22.04
+            platform: windows
+            arch: x86-64
+            libc: gnu
+          - os: ubuntu-22.04
+            platform: windows
+            arch: aarch64
+            libc: gnu
+          # macOS builds
+          - os: macos-15
+            platform: macos
+            arch: aarch64
+          - os: macos-13
+            platform: macos
+            arch: x86-64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # --- Linux ARM64 GNU cross-compilation toolchain ---
+      - name: Install ARM64 GNU toolchain
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      # --- Linux ARM64 musl (Docker) ---
+      - name: Set up QEMU for ARM64
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Pull Alpine ARM64 image
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
+        run: docker pull --platform linux/arm64 alpine:3.23
+
+      # --- Linux ARM64 Android ---
+      - name: Set up Android NDK
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      # --- Windows cross-compilation (llvm-mingw) ---
+      - name: Install llvm-mingw toolchain
+        if: matrix.platform == 'windows'
+        run: |
+          curl -fsSLo llvm-mingw.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20260311/llvm-mingw-20260311-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw.tar.xz
+          echo "$PWD/llvm-mingw-20260311-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
+
+      # --- Build steps ---
+      - name: Build (Linux x86-64)
+        if: matrix.platform == 'linux' && matrix.arch == 'x86-64'
+        run: make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"
+
+      - name: Build (Linux ARM64 GNU)
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'
+        run: |
+          make -C src HOST_CC="gcc -m64" CROSS=aarch64-linux-gnu- \
+            STATIC_CC="aarch64-linux-gnu-gcc" BUILDMODE=static TARGET_SYS=Linux CFLAGS="-fPIC"
+
+      - name: Build (Linux ARM64 musl)
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
+        run: |
+          docker run --rm --platform linux/arm64 -v $PWD:/work -w /work alpine:3.23 \
+            sh -c 'apk add --no-cache make gcc musl-dev && make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"'
+
+      - name: Build (Linux ARM64 Android)
+        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'
+        run: |
+          NDK_TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+          make -C src HOST_CC="gcc -m64" \
+            STATIC_CC="$NDK_TOOLCHAIN/aarch64-linux-android21-clang" \
+            DYNAMIC_CC="$NDK_TOOLCHAIN/aarch64-linux-android21-clang -fPIC" \
+            TARGET_LD="$NDK_TOOLCHAIN/aarch64-linux-android21-clang" \
+            TARGET_AR="$NDK_TOOLCHAIN/llvm-ar rcus" \
+            TARGET_STRIP="$NDK_TOOLCHAIN/llvm-strip" \
+            BUILDMODE=static TARGET_SYS=Linux CFLAGS="-fPIC"
+
+      - name: Build (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          MACOSX_DEPLOYMENT_TARGET=11.0 make -C src STATIC_CC="clang" BUILDMODE=static TARGET_SYS=Darwin CFLAGS="-fPIC"
+
+      - name: Build (Windows x86-64)
+        if: matrix.platform == 'windows' && matrix.arch == 'x86-64'
+        run: |
+          make -C src HOST_CC="gcc -m64" CROSS=x86_64-w64-mingw32- STATIC_CC="x86_64-w64-mingw32-clang" BUILDMODE=static TARGET_SYS=Windows
+
+      - name: Build (Windows ARM64)
+        if: matrix.platform == 'windows' && matrix.arch == 'aarch64'
+        run: |
+          make -C src HOST_CC="gcc -m64" CROSS=aarch64-w64-mingw32- STATIC_CC="aarch64-w64-mingw32-clang" BUILDMODE=static TARGET_SYS=Windows
+
+      # --- Packaging ---
+      - name: Package library
+        run: |
+          SUFFIX="${{ matrix.platform }}-${{ matrix.arch }}"
+          [ -n "${{ matrix.libc }}" ] && SUFFIX="${SUFFIX}-${{ matrix.libc }}"
+          mkdir -p "libluajit-${SUFFIX}/include" "libluajit-${SUFFIX}/lib"
+          cp src/*.h src/*.hpp "libluajit-${SUFFIX}/include/" 2>/dev/null || cp src/*.h "libluajit-${SUFFIX}/include/"
+          cp src/libluajit.a "libluajit-${SUFFIX}/lib/"
+
+      - name: Package binary
+        run: |
+          SUFFIX="${{ matrix.platform }}-${{ matrix.arch }}"
+          [ -n "${{ matrix.libc }}" ] && SUFFIX="${SUFFIX}-${{ matrix.libc }}"
+          mkdir -p "luajit-${SUFFIX}"
+          BIN=src/luajit
+          [ "${{ matrix.platform }}" = "windows" ] && BIN="${BIN}.exe"
+          cp "${BIN}" "luajit-${SUFFIX}/"
+
+      - name: Create library tarball
+        run: |
+          SUFFIX="${{ matrix.platform }}-${{ matrix.arch }}"
+          [ -n "${{ matrix.libc }}" ] && SUFFIX="${SUFFIX}-${{ matrix.libc }}"
+          tar -czf "libluajit-${SUFFIX}.tar.gz" "libluajit-${SUFFIX}"
+
+      - name: Create binary tarball
+        run: |
+          SUFFIX="${{ matrix.platform }}-${{ matrix.arch }}"
+          [ -n "${{ matrix.libc }}" ] && SUFFIX="${SUFFIX}-${{ matrix.libc }}"
+          tar -czf "luajit-${SUFFIX}.tar.gz" "luajit-${SUFFIX}"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: |
+            libluajit-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.libc && format('-{0}', matrix.libc) || '' }}.tar.gz
+            luajit-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.libc && format('-{0}', matrix.libc) || '' }}.tar.gz
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

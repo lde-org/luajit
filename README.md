@@ -49,3 +49,15 @@ scoped:cdef("typedef int foo;")
 Types declared inside a context are stored in the global type namespace with the
 prefix applied, so they are accessible globally (e.g., via `ffi.C` or `ffi.new`).
 The prefix simply ensures each context gets unique names.
+
+### `os.tmpname()` uses `TMPDIR`
+
+The `os.tmpname()` function now resolves the temporary directory dynamically
+instead of hardcoding `/tmp`. It checks the `TMPDIR` environment variable
+(POSIX standard), falling back to `/tmp` if unset.
+
+This makes `os.tmpname()` work correctly on platforms where `/tmp` is not
+writable or does not exist, such as:
+- **Termux** (Android) — `TMPDIR` points to `$PREFIX/tmp`
+- Containerized or sandboxed environments with custom temp locations
+- Any system that follows the POSIX convention of setting `TMPDIR`

@@ -928,6 +928,14 @@ static int lj_cf_ffi_context(lua_State *L)
   GCstr *pfx = lj_lib_optstr(L, 1);
   FFICtx *ctx = (FFICtx *)lua_newuserdata(L, sizeof(FFICtx));
   ctx->pfx = pfx;
+  if (pfx) {
+    /* Anchor prefix string via a dedicated env table so GC won’t collect it. */
+    GCtab *env = lj_tab_new(L, 0, 0);
+    GCudata *ud = udataV(L->top - 1);
+    setstrV(L, lj_tab_setstr(L, env, pfx), pfx);
+    setgcref(ud->env, obj2gco(env));
+    lj_gc_anybarriert(L, env);
+  }
   lua_pushvalue(L, lua_upvalueindex(1));  /* Shared metatable. */
   lua_setmetatable(L, -2);
   return 1;

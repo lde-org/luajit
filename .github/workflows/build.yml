@@ -26,6 +26,10 @@ jobs:
             libc: musl
           - os: ubuntu-22.04
             platform: linux
+            arch: x86-64
+            libc: musl
+          - os: ubuntu-22.04
+            platform: linux
             arch: aarch64
             libc: android
           # Windows builds (cross-compiled from Linux)
@@ -58,9 +62,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
-      # --- Linux ARM64 musl (native) ---
+      # --- Linux musl (native) ---
       - name: Install musl toolchain
-        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
+        if: matrix.platform == 'linux' && matrix.libc == 'musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       # --- Linux ARM64 Android ---
@@ -79,9 +83,13 @@ jobs:
           echo "$PWD/llvm-mingw-20260311-ucrt-ubuntu-22.04-x86_64/bin" >> $GITHUB_PATH
 
       # --- Build steps ---
-      - name: Build (Linux x86-64)
-        if: matrix.platform == 'linux' && matrix.arch == 'x86-64'
+      - name: Build (Linux x86-64 GNU)
+        if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'gnu'
         run: make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"
+
+      - name: Build (Linux x86-64 musl)
+        if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'musl'
+        run: make -C src STATIC_CC="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 GNU)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'

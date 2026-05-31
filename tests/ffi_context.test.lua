@@ -240,8 +240,8 @@ do
     c:cdef([[ unsigned long strlen(const char * s); ]])
     local okC, CC = pcall(function() return c.C end)
     if okC and CC then
-        T.ok(type(CC) == "table", "ctx.C is a table")
-        T.ok(type(CC.strlen) == "function", "ctx.C.strlen is callable")
+        T.ok(type(CC) == "userdata", "ctx.C is a userdata")
+        T.ok(type(CC.strlen) == "cdata", "ctx.C.strlen is a cdata")
         T.eq(tonumber(CC.strlen("hello")), 5, "ctx.C.strlen(hello) = 5")
         T.eq(tonumber(CC.strlen("")), 0, "ctx.C.strlen('') = 0")
 

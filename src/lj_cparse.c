@@ -1909,6 +1909,7 @@ static void cp_decl_multi(CPState *cp)
 	  id = lj_ctype_new(cp->cts, &ct);
 	  ct->info = CTINFO(CT_EXTERN, ctypeid);
 	}
+	if (!decl.redir && cp->pfx) decl.redir = decl.name;  /* Auto-redirect: pfx renames the ctype but not the C symbol. */
 	if (decl.redir) {  /* Add attribute for redirected symbol name. */
 	  CType *cta;
 	  CTypeID aid = lj_ctype_new(cp->cts, &cta);

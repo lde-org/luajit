@@ -831,6 +831,69 @@ LJLIB_PUSH(top-2) LJLIB_SET(arch)
 /* Context userdata: holds prefix string (NULL if no prefix). */
 typedef struct FFICtx { GCstr *pfx; } FFICtx;
 
+/* ctx.C proxy userdata: __index does ffi.C[pfx..key]. */
+typedef struct FFICtxC { GCstr *pfx; } FFICtxC;
+
+/* __index for ctx.C proxy. upvalue 1 = ffi.C. */
+static int ffi_ctx_C_index(lua_State *L)
+{
+  FFICtxC *cc = (FFICtxC *)uddata(udataV(L->base));
+  GCstr *key = lj_lib_checkstr(L, 2);
+  lua_pushvalue(L, lua_upvalueindex(1));  /* ffi.C */
+  if (cc->pfx) {
+    lua_pushlstring(L, strdata(cc->pfx), cc->pfx->len);
+    lua_pushlstring(L, strdata(key), key->len);
+    lua_concat(L, 2);
+  } else {
+    lua_pushlstring(L, strdata(key), key->len);
+  }
+  lua_gettable(L, -2);  /* ffi.C[pfx..key] */
+  lua_remove(L, -2);
+  return 1;
+}
+
+/* __index for context userdata. upvalue 1 = method table, upvalue 2 = ctx.C mt.
+** Handles "C" by creating/caching a per-context FFICtxC proxy in the env table. */
+static int ffi_ctx_index(lua_State *L)
+{
+  GCstr *key = lj_lib_checkstr(L, 2);
+  if (key->len == 1 && strdata(key)[0] == 'C') {
+    GCudata *ud = udataV(L->base);
+    GCtab *env = gco2tab(gcref(ud->env));
+    cTValue *tv = lj_tab_getstr(env, key);
+    if (tv && !tvisnil(tv)) {
+      copyTV(L, L->top++, tv);
+      return 1;
+    }
+    /* Create FFICtxC proxy and cache it. */
+    {
+      GCstr *pfx = ((FFICtx *)uddata(ud))->pfx;
+      FFICtxC *cc = (FFICtxC *)lua_newuserdata(L, sizeof(FFICtxC));
+      cc->pfx = pfx;
+      if (pfx) {
+        GCtab *cc_env = lj_tab_new(L, 0, 1);
+        GCudata *cc_ud = udataV(L->top - 1);
+        setstrV(L, lj_tab_setstr(L, cc_env, pfx), pfx);
+        setgcref(cc_ud->env, obj2gco(cc_env));
+        lj_gc_anybarriert(L, cc_env);
+      }
+      lua_pushvalue(L, lua_upvalueindex(2));  /* ctx.C metatable */
+      lua_setmetatable(L, -2);
+      /* Cache in env["C"]. ud->env is still valid (non-moving GC). */
+      {
+        TValue *slot = lj_tab_setstr(L, env, key);
+        copyTV(L, slot, L->top - 1);
+        lj_gc_anybarriert(L, env);
+      }
+    }
+    return 1;
+  }
+  lua_pushvalue(L, lua_upvalueindex(1));  /* method table */
+  lua_pushvalue(L, 2);
+  lua_rawget(L, -2);
+  return 1;
+}
+
 /* Get prefix from a context userdata at stack index idx. */
 static LJ_AINLINE GCstr *ffi_ctx_getpfx(lua_State *L, int idx)
 {
@@ -928,13 +991,14 @@ static int lj_cf_ffi_context(lua_State *L)
   GCstr *pfx = lj_lib_optstr(L, 1);
   FFICtx *ctx = (FFICtx *)lua_newuserdata(L, sizeof(FFICtx));
   ctx->pfx = pfx;
-  if (pfx) {
-    /* Anchor prefix string via a dedicated env table so GC won’t collect it. */
-    GCtab *env = lj_tab_new(L, 0, 0);
+  /* Always create env table: anchors prefix and caches ctx.C proxy. */
+  {
+    GCtab *env = lj_tab_new(L, 0, pfx ? 1 : 0);
     GCudata *ud = udataV(L->top - 1);
-    setstrV(L, lj_tab_setstr(L, env, pfx), pfx);
     setgcref(ud->env, obj2gco(env));
     lj_gc_anybarriert(L, env);
+    if (pfx)
+      setstrV(L, lj_tab_setstr(L, env, pfx), pfx);
   }
   lua_pushvalue(L, lua_upvalueindex(1));  /* Shared metatable. */
   lua_setmetatable(L, -2);
@@ -972,8 +1036,15 @@ LUALIB_API int luaopen_ffi(lua_State *L)
   LJ_LIB_REG(L, NULL, ffi);  /* Note: no global "ffi" created! */
   /* Build shared metatable for ffi.context. */
   {
-    int ffi_idx = lua_gettop(L), mt_idx;
-    lua_createtable(L, 0, 10);
+    int ffi_idx = lua_gettop(L), mt_idx, ctx_C_mt_idx;
+    /* ctx.C metatable: __index = closure(ffi.C) doing ffi.C[pfx..key]. */
+    lua_createtable(L, 0, 1);
+    ctx_C_mt_idx = lua_gettop(L);
+    lua_getfield(L, ffi_idx, "C");
+    lua_pushcclosure(L, ffi_ctx_C_index, 1);
+    lua_setfield(L, ctx_C_mt_idx, "__index");
+    /* Context metatable: methods + __index closure handling "C" lazily. */
+    lua_createtable(L, 0, 11);
     mt_idx = lua_gettop(L);
     lua_pushcfunction(L, ffi_ctx_cdef); lua_setfield(L, mt_idx, "cdef");
     lua_pushcfunction(L, ffi_ctx_new); lua_setfield(L, mt_idx, "new");
@@ -985,9 +1056,11 @@ LUALIB_API int luaopen_ffi(lua_State *L)
     lua_pushcfunction(L, ffi_ctx_metatype); lua_setfield(L, mt_idx, "metatype");
     lua_pushcfunction(L, ffi_ctx_istype); lua_setfield(L, mt_idx, "istype");
     lua_pushcfunction(L, ffi_ctx_load); lua_setfield(L, mt_idx, "load");
-    /* __index -> self. */
-    lua_pushvalue(L, mt_idx);
+    lua_pushvalue(L, mt_idx);        /* upvalue 1: method table */
+    lua_pushvalue(L, ctx_C_mt_idx);  /* upvalue 2: ctx.C metatable */
+    lua_pushcclosure(L, ffi_ctx_index, 2);
     lua_setfield(L, mt_idx, "__index");
+    lua_pushvalue(L, mt_idx);
     lua_pushcclosure(L, lj_cf_ffi_context, 1);
     lua_setfield(L, ffi_idx, "context");
     lua_settop(L, ffi_idx);

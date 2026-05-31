@@ -254,21 +254,21 @@ do
 end
 
 ----------------------------------------------------------------------
--- Section 16 — ctx.C context isolation
+-- Section 16 — ctx.C context isolation: same symbol, two namespaces
 ----------------------------------------------------------------------
 do
-    local c1 = new_ctx()
-    local c2 = new_ctx()
+    local c1 = ffi.context("ns1_")
+    local c2 = ffi.context("ns2_")
+    -- Both contexts cdef the same identifier; prefixes prevent collision.
     c1:cdef("unsigned long strlen(const char * s);")
     c2:cdef("unsigned long strlen(const char * s);")
-    local okC1, CC1 = pcall(function() return c1.C end)
-    local okC2, CC2 = pcall(function() return c2.C end)
-    if okC1 and CC1 and okC2 and CC2 then
-        T.eq(tonumber(CC1.strlen("hi")), 2, "ctx.C from ctx1 works")
-        T.eq(tonumber(CC2.strlen("hello")), 5, "ctx.C from ctx2 works independently")
-    else
-        io.write("SKIP: ctx.C not yet implemented\n")
-    end
+    -- Each resolves via its own prefix -> same underlying C symbol, no conflict.
+    T.eq(tonumber(c1.C.strlen("hi")),    2, "ctx1.C.strlen resolves correctly")
+    T.eq(tonumber(c2.C.strlen("hello")), 5, "ctx2.C.strlen resolves correctly")
+    -- Only c1 defines atoi; c2.C.atoi must fail (undeclared in ns2_).
+    c1:cdef("int atoi(const char * s);")
+    T.ok(pcall(function() return c1.C.atoi("7") end),      "c1.C.atoi declared -> ok")
+    T.ok(not pcall(function() return c2.C.atoi("7") end),  "c2.C.atoi not declared -> error")
 end
 
 ----------------------------------------------------------------------

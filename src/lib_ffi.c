@@ -909,8 +909,10 @@ static void ffi_ctx_shift(lua_State *L)
 }
 
 /* If arg 1 is a type string, resolve it to a ctype cdata.
-** Sets cp.pfx so that cp_ident looks up prefixed identifiers. */
-static void ffi_ctx_presolve(lua_State *L, GCstr *pfx)
+** Sets cp.pfx so that cp_ident looks up prefixed identifiers.
+** param mirrors ffi_checkctype's param: non-NULL only for $ substitution (typeof).
+** Consumed $ params are compacted out so the delegated function sees a clean stack. */
+static void ffi_ctx_presolve(lua_State *L, GCstr *pfx, TValue *param)
 {
   if (pfx && L->base < L->top && tvisstr(L->base)) {
     CTState *cts = ctype_cts(L);
@@ -920,13 +922,18 @@ static void ffi_ctx_presolve(lua_State *L, GCstr *pfx)
     GCcdata *cd;
     cp.L = L; cp.cts = cts;
     cp.srcname = strdata(s); cp.p = strdata(s);
-    cp.param = NULL; cp.pfx = pfx;
+    cp.param = param; cp.pfx = pfx;
     cp.mode = CPARSE_MODE_ABSTRACT|CPARSE_MODE_NOIMPLICIT;
     errcode = lj_cparse(&cp);
     if (errcode) lj_err_throw(L, errcode);
     cd = lj_cdata_new(cts, CTID_CTYPEID, 4);
     *(CTypeID *)cdataptr(cd) = cp.val.id;
     setcdataV(L, L->base, cd);
+    if (param && cp.param != param) {  /* Compact out consumed $ params. */
+      TValue *src = cp.param, *dst = L->base + 1;
+      while (src < L->top) *dst++ = *src++;
+      L->top = dst;
+    }
     lj_gc_check(L);
   }
 }
@@ -948,16 +955,21 @@ static int ffi_ctx_cdef(lua_State *L)
   return 0;
 }
 
-/* ctx:new/cast/typeof/sizeof/alignof/offsetof/metatype/istype --
+/* ctx:new/cast/sizeof/alignof/offsetof/metatype/istype --
 ** Resolve the type arg with prefix, then delegate to the base ffi function. */
 #define DEFCTXFN(name) \
   static int ffi_ctx_##name(lua_State *L) { \
     GCstr *pfx = ffi_ctx_getpfx(L, 1); ffi_ctx_shift(L); \
-    ffi_ctx_presolve(L, pfx); return lj_cf_ffi_##name(L); \
+    ffi_ctx_presolve(L, pfx, NULL); return lj_cf_ffi_##name(L); \
   }
 DEFCTXFN(new)
 DEFCTXFN(cast)
-DEFCTXFN(typeof)
+/* ctx:typeof supports $ substitution — pass L->base+1 as param, matching ffi_checkctype. */
+static int ffi_ctx_typeof(lua_State *L)
+{
+  GCstr *pfx = ffi_ctx_getpfx(L, 1); ffi_ctx_shift(L);
+  ffi_ctx_presolve(L, pfx, L->base + 1); return lj_cf_ffi_typeof(L);
+}
 DEFCTXFN(sizeof)
 DEFCTXFN(alignof)
 DEFCTXFN(offsetof)

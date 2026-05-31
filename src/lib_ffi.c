@@ -977,9 +977,12 @@ DEFCTXFN(metatype)
 DEFCTXFN(istype)
 #undef DEFCTXFN
 
-/* ctx:load(libname [, global]) -- delegates to ffi.load. */
+/* ctx:load(libname [, global]) -- loads a C library and returns a proxy.
+** The proxy is an FFICtxC userdata whose __index does lib[pfx..key],
+** so symbols resolve against the context's prefixed cdefs. */
 static int ffi_ctx_load(lua_State *L)
 {
+  GCstr *pfx = ffi_ctx_getpfx(L, 1);  /* save before shift */
   cTValue *tv;
   GCstr *name;
   int global;
@@ -992,7 +995,25 @@ static int ffi_ctx_load(lua_State *L)
   tv = (tv && tvistab(tv)) ? lj_tab_getstr(tabV(tv), lj_str_newlit(L, "C")) : NULL;
   if (!tv || !tvisudata(tv)) lj_err_caller(L, LJ_ERR_FFI_INVTYPE);
   clib_mt = gco2tab(gcref(udataV(tv)->metatable));
-  lj_clib_load(L, clib_mt, name, global);
+  lj_clib_load(L, clib_mt, name, global);  /* lib on top of stack */
+  /* Wrap lib in an FFICtxC proxy: lib[pfx..key] via ffi_ctx_C_index. */
+  {
+    FFICtxC *cc = (FFICtxC *)lua_newuserdata(L, sizeof(FFICtxC));
+    cc->pfx = pfx;
+    if (pfx) {
+      GCtab *cc_env = lj_tab_new(L, 0, 1);
+      GCudata *cc_ud = udataV(L->top - 1);
+      setstrV(L, lj_tab_setstr(L, cc_env, pfx), pfx);
+      setgcref(cc_ud->env, obj2gco(cc_env));
+      lj_gc_anybarriert(L, cc_env);
+    }
+    lua_createtable(L, 0, 1);           /* per-lib metatable */
+    lua_pushvalue(L, -3);               /* lib (below proxy and this mt) */
+    lua_pushcclosure(L, ffi_ctx_C_index, 1);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2);            /* set mt on proxy */
+    lua_remove(L, -2);                  /* remove lib, leave proxy */
+  }
   return 1;
 }
 

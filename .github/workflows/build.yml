@@ -89,7 +89,10 @@ jobs:
 
       - name: Build (Linux x86-64 musl)
         if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'musl'
-        run: make -C src STATIC_CC="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
+        # TARGET_LD defaults to $(CROSS)$(CC) (plain gcc), which would link the
+        # luajit executable against glibc even though the objects are musl.
+        # Override it so the shipped binary is a genuine musl build.
+        run: make -C src STATIC_CC="musl-gcc" TARGET_LD="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 GNU)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'
@@ -99,7 +102,7 @@ jobs:
 
       - name: Build (Linux ARM64 musl)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        run: make -C src STATIC_CC="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
+        run: make -C src STATIC_CC="musl-gcc" TARGET_LD="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 Android)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'

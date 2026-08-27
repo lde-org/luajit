@@ -123,13 +123,16 @@ jobs:
 
       - name: Build (Windows x86-64)
         if: matrix.platform == 'windows' && matrix.arch == 'x86-64'
+        # TARGET_XLDFLAGS exports the lua* symbols from the exe image
+        # (the -Wl,-E equivalent the Makefile only adds for non-Windows):
+        # lua-sys resolves its API via GetProcAddress(GetModuleHandle(NULL)).
         run: |
-          make -C src HOST_CC="gcc -m64" CROSS=x86_64-w64-mingw32- STATIC_CC="x86_64-w64-mingw32-clang" BUILDMODE=static TARGET_SYS=Windows
+          make -C src HOST_CC="gcc -m64" CROSS=x86_64-w64-mingw32- STATIC_CC="x86_64-w64-mingw32-clang" TARGET_XLDFLAGS="-Wl,--export-all-symbols" BUILDMODE=static TARGET_SYS=Windows
 
       - name: Build (Windows ARM64)
         if: matrix.platform == 'windows' && matrix.arch == 'aarch64'
         run: |
-          make -C src HOST_CC="gcc -m64" CROSS=aarch64-w64-mingw32- STATIC_CC="aarch64-w64-mingw32-clang" BUILDMODE=static TARGET_SYS=Windows
+          make -C src HOST_CC="gcc -m64" CROSS=aarch64-w64-mingw32- STATIC_CC="aarch64-w64-mingw32-clang" TARGET_XLDFLAGS="-Wl,--export-all-symbols" BUILDMODE=static TARGET_SYS=Windows
 
       # --- Packaging ---
       - name: Package library

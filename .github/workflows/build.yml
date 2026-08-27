@@ -87,12 +87,21 @@ jobs:
         if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'gnu'
         run: make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"
 
+      # The musl-gcc wrapper just doesn't work properly so we use the proper toolchain
+      - name: Install musl toolchain
+        if: matrix.libc == 'musl'
+        run: |
+          TOOL=${{ matrix.arch == 'x86-64' && 'x86_64-linux-musl-cross' || 'aarch64-linux-musl-cross' }}
+          curl -fsSLo musl-cross.tgz "https://musl.cc/${TOOL}.tgz"
+          tar -xzf musl-cross.tgz
+          echo "$PWD/${TOOL}/bin" >> "$GITHUB_PATH"
+
       - name: Build (Linux x86-64 musl)
         if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'musl'
         # TARGET_LD defaults to $(CROSS)$(CC) (plain gcc), which would link the
         # luajit executable against glibc even though the objects are musl.
         # Override it so the shipped binary is a genuine musl build.
-        run: make -C src STATIC_CC="musl-gcc" TARGET_LD="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
+        run: make -C src STATIC_CC="x86_64-linux-musl-gcc" TARGET_LD="x86_64-linux-musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 GNU)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'
@@ -102,7 +111,7 @@ jobs:
 
       - name: Build (Linux ARM64 musl)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        run: make -C src STATIC_CC="musl-gcc" TARGET_LD="musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
+        run: make -C src STATIC_CC="aarch64-linux-musl-gcc" TARGET_LD="aarch64-linux-musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 Android)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'

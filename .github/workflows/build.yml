@@ -87,31 +87,21 @@ jobs:
         if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'gnu'
         run: make -C src STATIC_CC="gcc" BUILDMODE=static CFLAGS="-fPIC"
 
-      # The musl-gcc wrapper just doesn't work properly so we use the proper toolchain
-      - name: Install musl toolchain
-        if: matrix.libc == 'musl'
+      - name: Build (Linux musl)
+        if: matrix.platform == 'linux' && matrix.libc == 'musl'
         run: |
-          TOOL=${{ matrix.arch == 'x86-64' && 'x86_64-linux-musl-cross' || 'aarch64-linux-musl-cross' }}
-          curl -fsSLo musl-cross.tgz "https://musl.cc/${TOOL}.tgz"
-          tar -xzf musl-cross.tgz
-          echo "$PWD/${TOOL}/bin" >> "$GITHUB_PATH"
-
-      - name: Build (Linux x86-64 musl)
-        if: matrix.platform == 'linux' && matrix.arch == 'x86-64' && matrix.libc == 'musl'
-        # TARGET_LD defaults to $(CROSS)$(CC) (plain gcc), which would link the
-        # luajit executable against glibc even though the objects are musl.
-        # Override it so the shipped binary is a genuine musl build.
-        run: make -C src STATIC_CC="x86_64-linux-musl-gcc" TARGET_LD="x86_64-linux-musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
+          # chmod runs inside the container (as root): the build's root-owned
+          # outputs can't be chmod'd by the non-root runner user afterwards.
+          docker run --rm -w /workspace \
+            -v "${{ github.workspace }}":/workspace \
+            alpine:3.20 \
+            sh -c "apk add --no-cache gcc musl-dev make && make -C src BUILDMODE=static CFLAGS=-fPIC && chmod -R a+rw /workspace"
 
       - name: Build (Linux ARM64 GNU)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'gnu'
         run: |
           make -C src HOST_CC="gcc -m64" CROSS=aarch64-linux-gnu- \
             STATIC_CC="aarch64-linux-gnu-gcc" BUILDMODE=static TARGET_SYS=Linux CFLAGS="-fPIC"
-
-      - name: Build (Linux ARM64 musl)
-        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'musl'
-        run: make -C src STATIC_CC="aarch64-linux-musl-gcc" TARGET_LD="aarch64-linux-musl-gcc" BUILDMODE=static CFLAGS="-fPIC"
 
       - name: Build (Linux ARM64 Android)
         if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'

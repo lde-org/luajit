@@ -51,9 +51,11 @@ jobs:
           - os: ubuntu-24.04
             platform: freebsd
             arch: x86-64
+            vm_arch: x86_64
           - os: ubuntu-24.04
             platform: freebsd
             arch: aarch64
+            vm_arch: aarch64
 
     runs-on: ${{ matrix.os }}
 
@@ -145,7 +147,7 @@ jobs:
         timeout-minutes: 90
         with:
           release: "14.5"
-          arch: ${{ matrix.arch }}
+          arch: ${{ matrix.vm_arch }}
           sync: rsync
           prepare: pkg install -y gmake git
           run: |

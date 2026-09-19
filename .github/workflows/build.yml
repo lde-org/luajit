@@ -48,6 +48,12 @@ jobs:
           - os: macos-15-intel
             platform: macos
             arch: x86-64
+          - os: ubuntu-24.04
+            platform: freebsd
+            arch: x86-64
+          - os: ubuntu-24.04
+            platform: freebsd
+            arch: aarch64
 
     runs-on: ${{ matrix.os }}
 
@@ -132,6 +138,18 @@ jobs:
         if: matrix.platform == 'windows' && matrix.arch == 'aarch64'
         run: |
           make -C src HOST_CC="gcc -m64" CROSS=aarch64-w64-mingw32- STATIC_CC="aarch64-w64-mingw32-clang" TARGET_XLDFLAGS="-Wl,--export-all-symbols" BUILDMODE=static TARGET_SYS=Windows
+
+      - name: Build (FreeBSD)
+        if: matrix.platform == 'freebsd'
+        uses: vmactions/freebsd-vm@v1
+        timeout-minutes: 90
+        with:
+          release: "14.5"
+          arch: ${{ matrix.arch }}
+          sync: rsync
+          prepare: pkg install -y gmake git
+          run: |
+            gmake -C src CC=cc BUILDMODE=static TARGET_SYS=FreeBSD CFLAGS="-fPIC"
 
       # --- Packaging ---
       - name: Package library

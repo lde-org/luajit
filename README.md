@@ -19,6 +19,10 @@ Here's a table of supported platforms and download links to the `luajit` binary.
 | **Windows** | aarch64 (ARM64)         | -             | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-windows-aarch64-gnu.tar.gz) |
 | **macOS**   | x86-64 (Intel)          | -             | [✅ Download](https://github.com/lde-org/luajit/releases/download/latest/luajit-macos-x86-64.tar.gz)        |
 | **macOS**   | aarch64 (Apple Silicon) | -             | [✅ Download](https://github.com/lde-org/luajit/releases/download/latest/luajit-macos-aarch64.tar.gz)       |
+| **FreeBSD** | x86-64                  | -             | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-freebsd-x86-64.tar.gz)      |
+| **FreeBSD** | aarch64 (ARM64)         | -             | [✅ Download](https://github.com/lde-org/luajit/releases/latest/download/luajit-freebsd-aarch64.tar.gz)     |
+
+The FreeBSD artifacts are built on FreeBSD 14.5, so they run on FreeBSD 14.5 and newer.
 
 If you need to get the library instead, check out the [release](https://github.com/lde-org/luajit/releases/latest) page manually and download the corresponding `libluajit`, although you would usually do this programmatically.
 

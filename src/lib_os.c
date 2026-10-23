@@ -83,7 +83,7 @@ static const char *os_tmpdir(void)
 
 LJLIB_CF(os_tmpname)
 {
-#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX
+#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX || LJ_TARGET_IOS
   lj_err_caller(L, LJ_ERR_OSUNIQF);
   return 0;
 #else

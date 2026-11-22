@@ -32,6 +32,10 @@ jobs:
             platform: linux
             arch: aarch64
             libc: android
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x86-64
+            libc: android
           # Windows builds (cross-compiled from Linux)
           - os: ubuntu-22.04
             platform: windows
@@ -75,9 +79,9 @@ jobs:
         if: matrix.platform == 'linux' && matrix.libc == 'musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # --- Linux ARM64 Android ---
+      # --- Linux Android ---
       - name: Set up Android NDK
-        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'
+        if: matrix.platform == 'linux' && matrix.libc == 'android'
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
@@ -111,14 +115,19 @@ jobs:
           make -C src HOST_CC="gcc -m64" CROSS=aarch64-linux-gnu- \
             STATIC_CC="aarch64-linux-gnu-gcc" BUILDMODE=static TARGET_SYS=Linux CFLAGS="-fPIC"
 
-      - name: Build (Linux ARM64 Android)
-        if: matrix.platform == 'linux' && matrix.arch == 'aarch64' && matrix.libc == 'android'
+      - name: Build (Linux Android)
+        if: matrix.platform == 'linux' && matrix.libc == 'android'
         run: |
           NDK_TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+          case "${{ matrix.arch }}" in
+            aarch64) NDK_TRIPLE=aarch64-linux-android ;;
+            x86-64)  NDK_TRIPLE=x86_64-linux-android ;;
+          esac
+          NDK_CC="$NDK_TOOLCHAIN/${NDK_TRIPLE}21-clang"
           make -C src HOST_CC="gcc -m64" \
-            STATIC_CC="$NDK_TOOLCHAIN/aarch64-linux-android21-clang" \
-            DYNAMIC_CC="$NDK_TOOLCHAIN/aarch64-linux-android21-clang -fPIC" \
-            TARGET_LD="$NDK_TOOLCHAIN/aarch64-linux-android21-clang" \
+            STATIC_CC="$NDK_CC" \
+            DYNAMIC_CC="$NDK_CC -fPIC" \
+            TARGET_LD="$NDK_CC" \
             TARGET_AR="$NDK_TOOLCHAIN/llvm-ar rcus" \
             TARGET_STRIP="$NDK_TOOLCHAIN/llvm-strip" \
             BUILDMODE=static TARGET_SYS=Linux CFLAGS="-fPIC"

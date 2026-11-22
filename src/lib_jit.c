@@ -759,6 +759,11 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
   lua_pushliteral(L, LUAJIT_VERSION);
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
+#ifdef __ANDROID__
+  /* jit.os is "Linux" on Android; this tells Lua code it runs on bionic. */
+  lua_pushboolean(L, 1);
+  lua_setfield(L, -2, "android");
+#endif
 #if LJ_HASPROFILE
   lj_lib_prereg(L, LUA_JITLIBNAME ".profile", luaopen_jit_profile,
 		tabref(L->env));
